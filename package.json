@@ -1,21 +1,26 @@
 {
   "name": "@mcpgram/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Official MCPGRAM CLI — install once, login once, configure every AI agent automatically",
   "type": "module",
   "bin": {
     "mcpgram": "./dist/index.js"
   },
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "scripts"
+    "scripts",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "prepare": "npm run build"
+    "test": "npm run typecheck && npm run build",
+    "lint": "tsc --noEmit",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run test"
   },
   "engines": {
     "node": ">=18"
@@ -27,13 +32,21 @@
     "claude",
     "cursor",
     "codex",
-    "ai-agents"
+    "ai-agents",
+    "model-context-protocol"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aryan418-dev/mcpgram-cli.git"
+  },
+  "homepage": "https://mcpgram.vercel.app",
+  "bugs": {
+    "url": "https://github.com/Aryan418-dev/mcpgram-cli/issues"
+  },
   "dependencies": {
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
-    "conf": "^13.1.0",
     "open": "^10.1.0",
     "ora": "^8.2.0"
   },
@@ -42,5 +55,8 @@
     "tsup": "^8.4.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
