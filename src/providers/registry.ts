@@ -14,6 +14,7 @@ import {
   aiderProvider,
 } from "./generic-json.js";
 
+/** Built-in providers. Add new agents by implementing AgentProvider and appending here. */
 export const providers: AgentProvider[] = [
   claudeCodeProvider,
   claudeDesktopProvider,
