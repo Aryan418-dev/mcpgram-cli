@@ -1,11 +1,11 @@
 import type { McpServerEntry } from "../providers/types.js";
-import { getMcpUrl, loadConfig, requireApiKey } from "./config.js";
+import { getMcpUrl, requireApiKey } from "./config.js";
+import { getBearerToken } from "../auth/token.js";
 
-/** Build the MCP server entry agents should use. Prefer OAuth URL; attach API key header when available. */
+/** Build the MCP server entry agents should use. Prefer OAuth/API key header when available. */
 export function buildMcpEntry(): McpServerEntry {
   const url = getMcpUrl();
-  const cfg = loadConfig();
-  const key = process.env.MCPGRAM_API_KEY || cfg.apiKey;
+  const key = getBearerToken();
   if (key) {
     return {
       url,
