@@ -4,7 +4,7 @@
   "description": "Official MCPGRAM CLI — install once, login once, configure every AI agent automatically",
   "type": "module",
   "bin": {
-    "mcpgram": "./dist/index.js"
+    "mcpgram": "dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
