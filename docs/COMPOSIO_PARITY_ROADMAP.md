@@ -69,11 +69,19 @@ mcpgram run-script examples/hello-workflow.mjs
 mcpgram script my-flow.ts --dry-run
 ```
 
-## Phase 5 — Product polish
+## Phase 5 — Product polish ✅
 
-- [ ] `mcpgram upgrade` self-update
-- [ ] Stronger doctor (MCP ping)
-- [ ] Docs + **npm publish 0.4.0** (includes Phase 1–4)
+| Item | Status |
+|------|--------|
+| `mcpgram update` / `upgrade` + `--check` (npm registry) | Done |
+| Doctor: MCP HTTP ping, Claude plugin path, version vs npm | Done |
+| Docs / examples / roadmap | Done |
+| **npm publish 0.4.0** | Ready (GitHub Actions or local `npm publish`) |
+
+```bash
+npm publish --access public
+# or: GitHub Actions → Publish CLI → Run workflow
+```
 
 ## Design rule
 
