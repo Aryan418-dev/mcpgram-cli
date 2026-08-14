@@ -21,16 +21,16 @@ function run(args, env = {}) {
   });
 }
 
-test("mcpgram --version prints 0.3.0", () => {
+test("mcpgram --version prints 0.4.0", () => {
   const r = run(["--version"]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout.trim(), /0\.3\.0/);
+  assert.match(r.stdout.trim(), /0\.4\.0/);
 });
 
 test("mcpgram version command", () => {
   const r = run(["version"]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /0\.3\.0/);
+  assert.match(r.stdout, /0\.4\.0/);
 });
 
 test("mcpgram --help lists core commands", () => {
@@ -76,7 +76,7 @@ test("doctor --json returns checks", () => {
   const r = run(["doctor", "--json"], { HOME: home });
   const j = JSON.parse(r.stdout);
   assert.ok(Array.isArray(j.checks));
-  assert.equal(j.version, "0.3.0");
+  assert.equal(j.version, "0.4.0");
 });
 
 test("servers without auth fails", () => {
