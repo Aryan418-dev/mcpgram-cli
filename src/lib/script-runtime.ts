@@ -60,9 +60,9 @@ export function createScriptHelpers(): ScriptHelpers {
     }
     const schema = found.tool.input_schema;
     if (opts?.validate !== false && schema && typeof schema === "object") {
-      const v = validateAgainstSchema(input, schema as Record<string, unknown>);
-      if (!v.ok) {
-        return { error: formatValidationError(v) };
+      const issues = validateAgainstSchema(input, schema);
+      if (issues.length > 0) {
+        return { error: formatValidationError(issues) };
       }
     }
     const result = await client.execute(found.tool.tool_id, input);
