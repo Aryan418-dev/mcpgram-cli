@@ -1,5 +1,6 @@
 /**
- * Composio-parity command registration (search / execute / link / install-skill).
+ * Composio-parity command registration (search / execute / link / install-skill / run-script).
+ * Kept separate so index.ts stays thin and easy to patch.
  */
 
 import type { Command } from "commander";
@@ -7,6 +8,7 @@ import { searchCmd } from "./commands/search.js";
 import { executeCmd } from "./commands/execute.js";
 import { linkCmd, unlinkCmd } from "./commands/link.js";
 import { installSkillsCmd } from "./commands/skills.js";
+import { runScriptCmd } from "./commands/run-script.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Wrap = (fn: (...args: any[]) => Promise<void> | void) => (...args: any[]) => Promise<void>;
@@ -46,6 +48,7 @@ export function registerParityCommands(program: Command, wrap: Wrap): void {
             sequential?: boolean;
           }
         ) => {
+          const argvTool = tool ?? "";
           await executeCmd(
             opts.batch ? undefined : tool,
             {
@@ -89,5 +92,14 @@ export function registerParityCommands(program: Command, wrap: Wrap): void {
       wrap(async (opts: { claude?: boolean; codex?: boolean; project?: boolean; all?: boolean }) =>
         installSkillsCmd(opts)
       )
+    );
+
+  program
+    .command("run-script <file>")
+    .alias("script")
+    .description("Run a multi-step JS/TS workflow with injected search/execute/link helpers")
+    .option("--dry-run", "Show helpers only, do not execute script")
+    .action(
+      wrap(async (file: string, opts: { dryRun?: boolean }) => runScriptCmd(file, opts))
     );
 }
