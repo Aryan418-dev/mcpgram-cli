@@ -259,7 +259,12 @@ ws.action(wrap(workspaceListCmd));
 // ── Utility ───────────────────────────────────────────
 program.command("info").description("Show endpoints and session summary").action(wrap(infoCmd));
 program.command("version").description("Print CLI version").action(wrap(versionCmd));
-program.command("update").description("Update MCPGRAM CLI to the latest version").action(wrap(updateCmd));
+program
+  .command("update")
+  .alias("upgrade")
+  .description("Update MCPGRAM CLI to the latest version")
+  .option("--check", "Only check registry; do not install")
+  .action(wrap(async (opts: { check?: boolean }) => updateCmd({ check: opts.check, yes: true })));
 
 registerParityCommands(program, wrap);
 
