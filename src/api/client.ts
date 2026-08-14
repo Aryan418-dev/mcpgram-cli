@@ -62,14 +62,6 @@ export type ExecuteResult = {
 /**
  * Dashboard /api/v1 client.
  * Auth: Bearer workspace API key or OAuth access token.
- *
- * Real endpoints:
- * - GET  /api/v1/tools
- * - GET  /api/v1/mcp-servers
- * - POST /api/v1/mcp-servers
- * - DELETE /api/v1/mcp-servers/:id
- * - POST /api/v1/mcp-servers/:id  (refresh)
- * - POST /api/v1/execute  { tool_id, input }
  */
 export class McpgramClient {
   constructor(
@@ -203,7 +195,31 @@ export class McpgramClient {
     return [{ id: me.workspaceId, name: me.workspaceId }];
   }
 
+  /** Best-effort connector list. Tries several dashboard paths; returns [] if none exist. */
   async listApps(): Promise<Array<{ id: string; name: string; status?: string }>> {
+    const paths = ["/api/v1/connectors", "/api/v1/apps", "/api/v1/connections"];
+    for (const path of paths) {
+      try {
+        const data = await this.request<unknown>("GET", path);
+        const rows = Array.isArray(data)
+          ? data
+          : (data as { connectors?: unknown[] })?.connectors ??
+            (data as { apps?: unknown[] })?.apps ??
+            (data as { connections?: unknown[] })?.connections ??
+            [];
+        if (!Array.isArray(rows)) continue;
+        return rows.map((r, i) => {
+          const row = r as Record<string, unknown>;
+          return {
+            id: String(row.id ?? row.provider ?? row.name ?? i),
+            name: String(row.name ?? row.provider ?? row.id ?? "app"),
+            status: row.status != null ? String(row.status) : undefined,
+          };
+        });
+      } catch {
+        /* try next */
+      }
+    }
     return [];
   }
 }
