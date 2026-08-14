@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CONFIG_DIR_NAME, APP_URL, MCP_SERVER_URL } from "./constants.js";
+import { CliError, ExitCode } from "./errors.js";
 
 export type McpgramConfig = {
   apiKey?: string;
@@ -17,6 +18,9 @@ export type McpgramConfig = {
   apiBase?: string;
   configuredAgents?: string[];
   defaultWorkspaceId?: string;
+  defaultServerId?: string;
+  outputFormat?: "text" | "json";
+  debug?: boolean;
   updatedAt?: string;
 };
 
@@ -71,21 +75,22 @@ export function clearConfig(): void {
 
 export function requireApiKey(): string {
   const key =
-    process.env.MCPGRAM_API_KEY || loadConfig().apiKey || loadConfig().accessToken;
+    process.env.MCPGRAM_API_KEY ||
+    process.env.MCPGRAM_TOKEN ||
+    loadConfig().apiKey ||
+    loadConfig().accessToken;
   if (!key) {
-    throw new Error(
-      "Not authenticated. Run `mcpgram login` or set MCPGRAM_API_KEY."
+    throw new CliError(
+      "Not authenticated.",
+      ExitCode.AUTH,
+      "Run: mcpgram login  (or set MCPGRAM_API_KEY)"
     );
   }
   return key;
 }
 
 export function getMcpUrl(): string {
-  return (
-    process.env.MCPGRAM_MCP_URL ||
-    loadConfig().mcpUrl ||
-    MCP_SERVER_URL
-  );
+  return process.env.MCPGRAM_MCP_URL || loadConfig().mcpUrl || MCP_SERVER_URL;
 }
 
 export function getApiBase(): string {
@@ -94,4 +99,63 @@ export function getApiBase(): string {
 
 export function getConfigPath(): string {
   return configPath();
+}
+
+/** Public non-secret view of config for `config list`. */
+export function getPublicConfig(): Record<string, unknown> {
+  const c = loadConfig();
+  const out: Record<string, unknown> = {};
+  for (const k of [
+    "apiBase",
+    "mcpUrl",
+    "defaultWorkspaceId",
+    "defaultServerId",
+    "workspaceId",
+    "workspaceName",
+    "outputFormat",
+    "debug",
+    "email",
+    "userId",
+  ] as const) {
+    if (c[k] !== undefined) out[k] = c[k];
+  }
+  out.authenticated = Boolean(
+    process.env.MCPGRAM_API_KEY ||
+      process.env.MCPGRAM_TOKEN ||
+      c.apiKey ||
+      c.accessToken
+  );
+  out.configPath = configPath();
+  out.apiBaseEffective = getApiBase();
+  out.mcpUrlEffective = getMcpUrl();
+  return out;
+}
+
+export function setConfigKey(key: string, value: string): McpgramConfig {
+  const allowed = new Set([
+    "apiBase",
+    "mcpUrl",
+    "defaultWorkspaceId",
+    "defaultServerId",
+    "outputFormat",
+    "debug",
+    "workspaceName",
+  ]);
+  if (!allowed.has(key)) {
+    throw new CliError(
+      `Cannot set "${key}" via config (secret or unknown).`,
+      ExitCode.USAGE,
+      `Allowed: ${[...allowed].join(", ")}`
+    );
+  }
+  if (key === "debug") {
+    return saveConfig({ debug: value === "true" || value === "1" });
+  }
+  if (key === "outputFormat") {
+    if (value !== "text" && value !== "json") {
+      throw new CliError("outputFormat must be text or json", ExitCode.USAGE);
+    }
+    return saveConfig({ outputFormat: value });
+  }
+  return saveConfig({ [key]: value } as Partial<McpgramConfig>);
 }
