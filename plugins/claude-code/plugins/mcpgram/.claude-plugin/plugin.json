@@ -1,0 +1,29 @@
+{
+  "name": "mcpgram",
+  "displayName": "MCPGRAM",
+  "version": "0.4.0",
+  "description": "Your agent decides what to do — MCPGRAM handles the rest. Just-in-time tool calls across LinkedIn, Slack, GitHub, Discord, Notion, Figma and more, with managed OAuth, driven by the mcpgram CLI.",
+  "author": {
+    "name": "MCPGRAM",
+    "url": "https://mcpgram.vercel.app"
+  },
+  "homepage": "https://mcpgram.vercel.app",
+  "repository": "https://github.com/Aryan418-dev/mcpgram-cli",
+  "license": "MIT",
+  "keywords": [
+    "mcpgram",
+    "cli",
+    "mcp",
+    "tools",
+    "integrations",
+    "connectors",
+    "oauth",
+    "linkedin",
+    "slack",
+    "github",
+    "discord",
+    "notion",
+    "figma",
+    "automation"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "mcpgram",
+  "owner": {
+    "name": "MCPGRAM"
+  },
+  "metadata": {
+    "description": "Connect Claude Code to apps via the MCPGRAM CLI — search, link, execute."
+  },
+  "plugins": [
+    {
+      "name": "mcpgram",
+      "displayName": "MCPGRAM",
+      "description": "Your agent decides what to do — MCPGRAM handles the rest. Driven by the mcpgram CLI.",
+      "author": {
+        "name": "MCPGRAM",
+        "url": "https://mcpgram.vercel.app"
+      },
+      "homepage": "https://mcpgram.vercel.app",
+      "repository": "https://github.com/Aryan418-dev/mcpgram-cli",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": ["mcpgram", "cli", "mcp", "tools", "integrations"],
+      "source": "./plugins/claude-code/plugins/mcpgram"
+    }
+  ]
+}
