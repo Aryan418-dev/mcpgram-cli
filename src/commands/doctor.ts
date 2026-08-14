@@ -5,6 +5,7 @@ import { McpgramClient } from "../api/client.js";
 import { providers } from "../providers/registry.js";
 import { isAuthenticated } from "../auth/token.js";
 import { CLI_VERSION } from "../lib/constants.js";
+import { isJson, printJson } from "../lib/output.js";
 
 type Check = { name: string; ok: boolean; detail: string; fix?: string };
 
@@ -121,13 +122,24 @@ export async function doctorCmd(): Promise<void> {
     fix: configured ? undefined : "mcpgram setup --all",
   });
 
+  const failed = checks.filter((c) => !c.ok).length;
+
+  if (isJson()) {
+    printJson({
+      ok: failed === 0,
+      version: CLI_VERSION,
+      checks,
+      failed,
+    });
+    if (failed) process.exitCode = 1;
+    return;
+  }
+
   console.log(chalk.bold(`\nMCPGRAM doctor  (cli ${CLI_VERSION})\n`));
-  let failed = 0;
   for (const c of checks) {
     const mark = c.ok ? chalk.green("✓") : chalk.red("✗");
     console.log(`${mark} ${c.name}: ${c.detail}`);
     if (!c.ok && c.fix) console.log(chalk.dim(`    → ${c.fix}`));
-    if (!c.ok) failed++;
   }
   console.log("");
   if (failed) {
