@@ -1,6 +1,7 @@
 import { getApiBase, requireApiKey } from "../lib/config.js";
 import { USER_AGENT } from "../lib/constants.js";
 import { getBearerToken } from "../auth/token.js";
+import { CliError, ExitCode } from "../lib/errors.js";
 
 export class ApiError extends Error {
   constructor(
@@ -25,17 +26,19 @@ export type McpServerRow = {
   provider_type?: string;
 };
 
+export type ToolRow = {
+  tool_id: string;
+  name: string;
+  description?: string | null;
+  input_schema?: unknown;
+};
+
 export type ToolsListResponse = {
   servers: Array<{
     server_id: string;
     name: string;
     status: string;
-    tools: Array<{
-      tool_id: string;
-      name: string;
-      description?: string | null;
-      input_schema?: unknown;
-    }>;
+    tools: ToolRow[];
   }>;
 };
 
@@ -45,9 +48,28 @@ export type WorkspaceSummary = {
   role?: string;
 };
 
+export type ExecuteResult = {
+  status?: string;
+  output?: unknown;
+  error?: string;
+  request_id?: string;
+  trace_id?: string;
+  execution_id?: string;
+  duration_ms?: number;
+  meta?: Record<string, unknown>;
+};
+
 /**
  * Dashboard /api/v1 client.
- * Auth: Bearer workspace API key or OAuth access token (same identity system).
+ * Auth: Bearer workspace API key or OAuth access token.
+ *
+ * Real endpoints:
+ * - GET  /api/v1/tools
+ * - GET  /api/v1/mcp-servers
+ * - POST /api/v1/mcp-servers
+ * - DELETE /api/v1/mcp-servers/:id
+ * - POST /api/v1/mcp-servers/:id  (refresh)
+ * - POST /api/v1/execute  { tool_id, input }
  */
 export class McpgramClient {
   constructor(
@@ -55,34 +77,56 @@ export class McpgramClient {
     private readonly baseUrl = getApiBase()
   ) {}
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    opts?: { timeoutMs?: number }
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "X-MCPGRAM-Agent": "mcpgram-cli",
-        "User-Agent": USER_AGENT,
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json: unknown = null;
-    if (text) {
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = { raw: text };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 30_000);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-MCPGRAM-Agent": "mcpgram-cli",
+          "User-Agent": USER_AGENT,
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let json: unknown = null;
+      if (text) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
       }
+      if (!res.ok) {
+        const msg =
+          (json as { error?: string } | null)?.error ?? `HTTP ${res.status}`;
+        throw new ApiError(msg, res.status, json);
+      }
+      return json as T;
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      if (e instanceof Error && e.name === "AbortError") {
+        throw new CliError("Request timed out", ExitCode.NETWORK, `URL: ${url}`);
+      }
+      throw new CliError(
+        e instanceof Error ? e.message : String(e),
+        ExitCode.NETWORK,
+        `Check ${this.baseUrl}`
+      );
+    } finally {
+      clearTimeout(timeout);
     }
-    if (!res.ok) {
-      const msg =
-        (json as { error?: string } | null)?.error ?? `HTTP ${res.status}`;
-      throw new ApiError(msg, res.status, json);
-    }
-    return json as T;
   }
 
   listTools(serverFilter?: string): Promise<ToolsListResponse> {
@@ -92,6 +136,10 @@ export class McpgramClient {
 
   listMcpServers(): Promise<{ workspace_id: string; servers: McpServerRow[] }> {
     return this.request("GET", "/api/v1/mcp-servers");
+  }
+
+  getMcpServer(serverId: string): Promise<McpServerRow | Record<string, unknown>> {
+    return this.request("GET", `/api/v1/mcp-servers/${encodeURIComponent(serverId)}`);
   }
 
   connectMcpServer(body: {
@@ -110,17 +158,31 @@ export class McpgramClient {
     return this.request("POST", `/api/v1/mcp-servers/${encodeURIComponent(serverId)}`);
   }
 
-  execute(tool: string, arguments_?: Record<string, unknown>): Promise<unknown> {
+  execute(toolId: string, input?: Record<string, unknown>): Promise<ExecuteResult> {
     return this.request("POST", "/api/v1/execute", {
-      tool,
-      arguments: arguments_ ?? {},
+      tool_id: toolId,
+      input: input ?? {},
     });
   }
 
-  /**
-   * TODO: GET /api/v1/me — dedicated whoami.
-   * Today we infer workspace from mcp-servers list.
-   */
+  async findTool(nameOrId: string): Promise<{ tool: ToolRow; server: string } | null> {
+    const data = await this.listTools();
+    const q = nameOrId.toLowerCase();
+    for (const s of data.servers) {
+      for (const t of s.tools) {
+        if (
+          t.tool_id === nameOrId ||
+          t.name === nameOrId ||
+          t.name.toLowerCase() === q ||
+          t.tool_id.toLowerCase() === q
+        ) {
+          return { tool: t, server: s.name };
+        }
+      }
+    }
+    return null;
+  }
+
   async me(): Promise<{ workspaceId?: string; ok: boolean; error?: string }> {
     try {
       const data = await this.listMcpServers();
@@ -135,20 +197,12 @@ export class McpgramClient {
     return this.me();
   }
 
-  /**
-   * TODO: GET /api/v1/workspaces for multi-workspace listing under user tokens.
-   * API keys are workspace-scoped so list is implicit.
-   */
   async listWorkspaces(): Promise<WorkspaceSummary[]> {
     const me = await this.me();
     if (!me.ok || !me.workspaceId) return [];
     return [{ id: me.workspaceId, name: me.workspaceId }];
   }
 
-  /**
-   * TODO: connector/apps list endpoint for `mcpgram app list`.
-   * Until then, surface MCP servers as the operational surface.
-   */
   async listApps(): Promise<Array<{ id: string; name: string; status?: string }>> {
     return [];
   }
