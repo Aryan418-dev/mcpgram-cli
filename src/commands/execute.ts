@@ -1,16 +1,22 @@
 /**
- * mcpgram execute <tool> — Composio-style alias for run with --schema / --dry-run.
+ * mcpgram execute <tool> — Composio-style alias for run with --schema / --dry-run / validation.
  */
 
 import chalk from "chalk";
 import { McpgramClient } from "../api/client.js";
 import { CliError, ExitCode } from "../lib/errors.js";
 import { isJson, printJson, printHuman } from "../lib/output.js";
+import { validateAgainstSchema, formatValidationError } from "../lib/validate.js";
+import { redactDeep } from "../lib/redact.js";
 import { success, fail } from "../utils/ui.js";
+import { batchExecuteCmd } from "./batch.js";
 
 function parseExtraArgs(argv: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const skip = new Set(["--input", "--json", "--schema", "--get-schema", "--dry-run", "--dry"]);
+  const skip = new Set([
+    "--input", "--json", "--schema", "--get-schema", "--dry-run", "--dry",
+    "--batch", "--no-validate", "--sequential",
+  ]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--") || skip.has(a)) continue;
@@ -27,14 +33,32 @@ function parseExtraArgs(argv: string[]): Record<string, unknown> {
 }
 
 export async function executeCmd(
-  tool: string,
+  tool: string | undefined,
   opts: {
     input?: string;
     schema?: boolean;
     dryRun?: boolean;
+    batch?: string;
+    noValidate?: boolean;
+    sequential?: boolean;
   } = {},
   extraArgv: string[] = []
 ): Promise<void> {
+  if (opts.batch) {
+    await batchExecuteCmd(opts.batch, {
+      parallel: !opts.sequential,
+      skipValidate: opts.noValidate,
+    });
+    return;
+  }
+
+  if (!tool) {
+    throw new CliError(
+      "Usage: mcpgram execute <tool> | mcpgram execute --batch file.json",
+      ExitCode.USAGE
+    );
+  }
+
   const client = new McpgramClient();
   const found = await client.findTool(tool);
   if (!found) {
@@ -79,36 +103,56 @@ export async function executeCmd(
     input = parseExtraArgs(extraArgv);
   }
 
+  if (!opts.noValidate && schema) {
+    const issues = validateAgainstSchema(input, schema);
+    if (issues.length) {
+      const msg = formatValidationError(issues);
+      if (opts.dryRun) {
+        if (isJson()) {
+          printJson({ dry_run: true, valid: false, issues, input: redactDeep(input) });
+          process.exitCode = 1;
+          return;
+        }
+        fail(`Schema validation failed: ${msg}`);
+        process.exitCode = 1;
+        return;
+      }
+      throw new CliError(`Schema validation failed: ${msg}`, ExitCode.USAGE, "Use --no-validate to skip");
+    }
+  }
+
   if (opts.dryRun) {
     if (isJson()) {
       printJson({
         dry_run: true,
+        valid: true,
         tool: found.tool.name,
         tool_id: toolId,
         server: found.server,
-        input,
+        input: redactDeep(input),
         input_schema: schema ?? null,
       });
       return;
     }
-    printHuman(chalk.bold("Dry run — not executed"));
+    printHuman(chalk.bold("Dry run — not executed (schema OK)"));
     printHuman(`Tool: ${found.tool.name} (${toolId})`);
     printHuman(`Server: ${found.server}`);
     printHuman("Input:");
-    console.log(JSON.stringify(input, null, 2));
+    console.log(JSON.stringify(redactDeep(input), null, 2));
     return;
   }
 
   const result = await client.execute(toolId, input);
+  const safeResult = redactDeep(result);
 
   if (isJson()) {
-    printJson({ ok: !result.error, tool: toolId, result });
+    printJson({ ok: !result.error, tool: toolId, result: safeResult });
     if (result.error) process.exitCode = 1;
     return;
   }
 
   if (result.error) {
-    fail(result.error);
+    fail(String(result.error));
     process.exitCode = 1;
     return;
   }
@@ -116,8 +160,7 @@ export async function executeCmd(
   if (result.duration_ms != null) printHuman(`Duration: ${result.duration_ms}ms`);
   if (result.request_id) printHuman(chalk.dim(`request_id: ${result.request_id}`));
   if (result.output !== undefined) {
-    console.log(
-      typeof result.output === "string" ? result.output : JSON.stringify(result.output, null, 2)
-    );
+    const out = redactDeep(result.output);
+    console.log(typeof out === "string" ? out : JSON.stringify(out, null, 2));
   }
 }
