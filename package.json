@@ -1,7 +1,7 @@
 {
   "name": "@mcpgram/cli",
-  "version": "0.3.0",
-  "description": "Official MCPGRAM CLI — login once, configure every AI agent, manage tools & servers",
+  "version": "0.4.0",
+  "description": "Official MCPGRAM CLI — login once, configure every AI agent, search/link/execute tools (Composio-style)",
   "type": "module",
   "bin": {
     "mcpgram": "dist/index.js"
@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "scripts",
+    "skills",
     "README.md"
   ],
   "scripts": {
