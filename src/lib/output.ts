@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { CliError, ExitCode, type ExitCodeValue, toCliError } from "./errors.js";
+import { redactDeep } from "./redact.js";
 
 export type GlobalOpts = {
   json?: boolean;
@@ -34,9 +35,10 @@ export function isYes(): boolean {
   return Boolean(globalOpts.yes);
 }
 
-/** Print only valid JSON to stdout (no decorations). */
-export function printJson(data: unknown): void {
-  process.stdout.write(JSON.stringify(data, null, 2) + "\n");
+/** Print only valid JSON to stdout (secrets redacted by default). */
+export function printJson(data: unknown, opts?: { redact?: boolean }): void {
+  const payload = opts?.redact === false ? data : redactDeep(data);
+  process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
 }
 
 export function printHuman(lines: string | string[]): void {
@@ -55,8 +57,8 @@ export function handleCommandError(e: unknown): never {
       hint: err.hint,
     });
   } else {
-    console.error(chalk.red(`✗ ${err.message}`));
-    if (err.hint) console.error(chalk.dim(`  → ${err.hint}`));
+    console.error(chalk.red(`\u2717 ${err.message}`));
+    if (err.hint) console.error(chalk.dim(`  \u2192 ${err.hint}`));
     if (isDebug() && err.cause) {
       console.error(chalk.dim(String(err.cause instanceof Error ? err.cause.stack : err.cause)));
     } else if (isDebug() && e instanceof Error && e.stack) {
