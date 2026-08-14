@@ -16,5 +16,5 @@ export const API_BASE =
 
 export const CONFIG_DIR_NAME = ".mcpgram";
 export const SERVER_KEY = "mcpgram";
-export const CLI_VERSION = "0.2.0";
+export const CLI_VERSION = "0.3.0";
 export const USER_AGENT = `mcpgram-cli/${CLI_VERSION}`;
