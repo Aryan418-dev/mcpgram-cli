@@ -14,7 +14,4 @@ jobs:
         with:
           node-version: "20"
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
-      - run: node --test test/*.test.js
-      - run: npm pack --dry-run
+      - run: npm test
