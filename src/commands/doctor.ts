@@ -1,5 +1,7 @@
 import chalk from "chalk";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { loadConfig, getMcpUrl, getApiBase, getConfigPath } from "../lib/config.js";
 import { McpgramClient } from "../api/client.js";
 import { providers } from "../providers/registry.js";
@@ -24,6 +26,15 @@ export async function doctorCmd(): Promise<void> {
     name: "Config path",
     ok: true,
     detail: getConfigPath(),
+  });
+
+  const skillPath = path.join(os.homedir(), ".claude", "skills", "mcpgram-cli", "SKILL.md");
+  const skillOk = fs.existsSync(skillPath);
+  checks.push({
+    name: "CLI skill (Claude)",
+    ok: skillOk,
+    detail: skillOk ? skillPath : "not installed",
+    fix: skillOk ? undefined : "mcpgram install-skill --claude",
   });
 
   if (!isAuthenticated()) {
@@ -84,6 +95,46 @@ export async function doctorCmd(): Promise<void> {
     checks.push({ name: "MCP URL", ok: false, detail: "Invalid URL", fix: "Set MCPGRAM_MCP_URL" });
   }
 
+  // Live MCP HTTP ping (Streamable HTTP / OAuth discovery)
+  try {
+    const mcpUrl = getMcpUrl().replace(/\/$/, "");
+    const probeUrls = [
+      `${mcpUrl}`,
+      mcpUrl.endsWith("/mcp")
+        ? mcpUrl.replace(/\/mcp$/, "/.well-known/oauth-protected-resource")
+        : `${mcpUrl}/.well-known/oauth-protected-resource`,
+    ];
+    let pingOk = false;
+    let pingDetail = "";
+    for (const u of probeUrls) {
+      try {
+        const res = await fetch(u, {
+          method: "GET",
+          headers: { Accept: "application/json, text/event-stream, */*" },
+          signal: AbortSignal.timeout(10_000),
+        });
+        pingOk = res.status < 500;
+        pingDetail = `${u} → HTTP ${res.status}`;
+        if (pingOk) break;
+      } catch (e) {
+        pingDetail = e instanceof Error ? e.message : String(e);
+      }
+    }
+    checks.push({
+      name: "MCP endpoint ping",
+      ok: pingOk,
+      detail: pingDetail || getMcpUrl(),
+      fix: pingOk ? undefined : "Check MCPGRAM_MCP_URL / mcpgram-mcp-server deployment",
+    });
+  } catch (e) {
+    checks.push({
+      name: "MCP endpoint ping",
+      ok: false,
+      detail: e instanceof Error ? e.message : String(e),
+      fix: "Set MCPGRAM_MCP_URL and verify network",
+    });
+  }
+
   try {
     const res = await fetch(getApiBase(), { method: "HEAD", signal: AbortSignal.timeout(8000) });
     checks.push({
@@ -99,6 +150,40 @@ export async function doctorCmd(): Promise<void> {
       detail: e instanceof Error ? e.message : String(e),
       fix: `Check ${getApiBase()}`,
     });
+  }
+
+  // Claude Code local plugin path (Phase 3)
+  const pluginPath = path.join(os.homedir(), ".claude", "plugins", "local", "mcpgram");
+  const pluginOk =
+    fs.existsSync(path.join(pluginPath, ".claude-plugin", "plugin.json")) ||
+    fs.existsSync(path.join(pluginPath, "plugin.json"));
+  checks.push({
+    name: "Claude plugin (local)",
+    ok: pluginOk || skillOk,
+    detail: pluginOk ? pluginPath : skillOk ? "skill only (plugin optional)" : "not installed",
+    fix: pluginOk || skillOk ? undefined : "mcpgram setup --target claude",
+  });
+
+  // npm registry version (informational)
+  try {
+    const res = await fetch("https://registry.npmjs.org/@mcpgram/cli/latest", {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { version?: string };
+      const latest = data.version ?? "?";
+      const current = CLI_VERSION;
+      const upToDate = latest === current;
+      checks.push({
+        name: "CLI version",
+        ok: true,
+        detail: upToDate ? `${current} (latest)` : `${current} (npm latest ${latest})`,
+        fix: upToDate ? undefined : "mcpgram upgrade",
+      });
+    }
+  } catch {
+    /* offline ok */
   }
 
   let configured = 0;
