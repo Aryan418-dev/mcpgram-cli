@@ -12,6 +12,7 @@
     "dist",
     "scripts",
     "skills",
+    "plugins",
     "README.md"
   ],
   "scripts": {
