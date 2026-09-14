@@ -75,12 +75,12 @@ export async function loginCmd(opts: {
 
     success("Logged into MCPGRAM (browser PKCE)");
     if (workspaceId) success(`Workspace: ${workspaceId}`);
-    else
+    else {
       info(
         "Session saved for MCP agents. For dashboard API: mcpgram login --key <workspace_key>"
       );
-    console.log(chalk.dim("
-Next: mcpgram setup --all   or   mcpgram onboard"));
+    }
+    console.log(chalk.dim("\nNext: mcpgram setup --all   or   mcpgram onboard"));
   } catch (e) {
     spin.stop();
     const msg = e instanceof Error ? e.message : String(e);
@@ -105,13 +105,11 @@ async function promptApiKeyFlow(openBrowser: boolean): Promise<void> {
   const keysUrl = `${APP_URL}/dashboard`;
   console.log("1. Open the dashboard and copy a workspace API key.");
   console.log(`   ${chalk.cyan(keysUrl)}`);
-  console.log("2. Paste the API key below.
-");
+  console.log("2. Paste the API key below.\n");
   if (openBrowser) {
     try {
       await open(keysUrl);
-      console.log(chalk.dim("Opened browser.
-"));
+      console.log(chalk.dim("Opened browser.\n"));
     } catch {
       /* ignore */
     }
@@ -142,8 +140,7 @@ async function loginWithApiKey(apiKey: string): Promise<void> {
   });
   success("Logged into MCPGRAM (API key)");
   if (v.workspaceId) success(`Workspace: ${v.workspaceId}`);
-  console.log(chalk.dim("
-Next: mcpgram setup --all"));
+  console.log(chalk.dim("\nNext: mcpgram setup --all"));
 }
 
 export async function logoutCmd(): Promise<void> {
