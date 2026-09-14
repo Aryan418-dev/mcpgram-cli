@@ -77,7 +77,7 @@ function wrap(fn: (...args: any[]) => Promise<void> | void) {
 // ── Auth ──────────────────────────────────────────────
 program
   .command("login")
-  .description("Sign in via browser (PKCE) or API key")
+  .description("Sign in via browser PKCE (default) or API key")
   .option("-k, --key <apiKey>", "API key (CI / skip browser)")
   .option("--no-open", "Do not open the browser")
   .option("--no-browser", "Skip PKCE; use API key prompt only")

@@ -5,6 +5,8 @@ import { CONFIG_DIR_NAME, APP_URL, MCP_SERVER_URL } from "./constants.js";
 import { CliError, ExitCode } from "./errors.js";
 
 export type McpgramConfig = {
+  /** Cached DCR client_id for CLI loopback OAuth */
+  oauthClientId?: string;
   apiKey?: string;
   accessToken?: string;
   refreshToken?: string;
