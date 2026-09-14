@@ -158,7 +158,7 @@ Supported: Claude Code · Claude Desktop · Cursor · VS Code · Codex · Gemini
 --debug    Stack traces
 --quiet    Less human output
 --yes      Non-interactive / CI
---version  0.4.1
+--version  0.4.2
 --help
 ```
 

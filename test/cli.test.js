@@ -8,6 +8,9 @@ import os from "node:os";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const bin = path.join(root, "dist", "index.js");
+const PKG_VERSION = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8")
+).version;
 
 function run(args, env = {}) {
   return spawnSync(process.execPath, [bin, ...args], {
@@ -21,16 +24,16 @@ function run(args, env = {}) {
   });
 }
 
-test("mcpgram --version prints 0.4.0", () => {
+test(`mcpgram --version prints ${PKG_VERSION}`, () => {
   const r = run(["--version"]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout.trim(), /0\.4\.0/);
+  assert.match(r.stdout.trim(), new RegExp(PKG_VERSION.replace(/\./g, "\\.")));
 });
 
 test("mcpgram version command", () => {
   const r = run(["version"]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /0\.4\.0/);
+  assert.match(r.stdout, new RegExp(PKG_VERSION.replace(/\./g, "\\.")));
 });
 
 test("mcpgram --help lists core commands", () => {
@@ -76,7 +79,7 @@ test("doctor --json returns checks", () => {
   const r = run(["doctor", "--json"], { HOME: home });
   const j = JSON.parse(r.stdout);
   assert.ok(Array.isArray(j.checks));
-  assert.equal(j.version, "0.4.0");
+  assert.equal(j.version, PKG_VERSION);
 });
 
 test("servers without auth fails", () => {
@@ -93,11 +96,6 @@ test("tools without auth fails", () => {
 
 test("init scaffolds project", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcpgram-init-"));
-  const r = run(["init", "demo-mcp", "--yes", "--json"], {
-    HOME: fs.mkdtempSync(path.join(os.tmpdir(), "mcpgram-home-")),
-    cwd: tmp,
-  });
-  // spawnSync does not take cwd in env — use process.chdir via status check on path
   const r2 = spawnSync(process.execPath, [bin, "init", "demo-mcp", "--yes", "--json"], {
     encoding: "utf8",
     cwd: tmp,
