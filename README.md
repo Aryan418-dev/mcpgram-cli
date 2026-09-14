@@ -26,6 +26,36 @@ irm https://mcpgram.vercel.app/install.ps1 | iex
 mcpgram onboard
 ```
 
+## Update (full refresh from npm)
+
+```bash
+# Recommended — uses npm global package
+npm install -g @mcpgram/cli@latest
+
+# Or from the CLI itself
+mcpgram update
+# alias:
+mcpgram upgrade
+
+# Check only (exit 2 if outdated)
+mcpgram update --check
+```
+
+If `mcpgram` is missing from PATH after install:
+
+```bash
+export PATH="$(npm prefix -g)/bin:$PATH"
+mcpgram --version
+```
+
+Windows (PowerShell):
+
+```powershell
+npm install -g @mcpgram/cli@latest
+# or
+mcpgram update
+```
+
 ## Authentication
 
 ```bash
@@ -128,7 +158,7 @@ Supported: Claude Code · Claude Desktop · Cursor · VS Code · Codex · Gemini
 --debug    Stack traces
 --quiet    Less human output
 --yes      Non-interactive / CI
---version  0.3.0
+--version  0.4.0
 --help
 ```
 

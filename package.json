@@ -1,7 +1,7 @@
 {
   "name": "@mcpgram/cli",
   "version": "0.4.0",
-  "description": "Official MCPGRAM CLI — login once, configure every AI agent, search/link/execute tools (Composio-style)",
+  "description": "Official MCPGRAM CLI \u2014 login once, configure every AI agent, search/link/execute tools (Composio-style)",
   "type": "module",
   "bin": {
     "mcpgram": "dist/index.js"
@@ -22,7 +22,6 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && npm run build && node --test test/*.test.js",
     "lint": "tsc --noEmit",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run test",
     "pack:check": "npm pack --dry-run"
   },

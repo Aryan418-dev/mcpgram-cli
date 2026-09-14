@@ -1,5 +1,9 @@
 /**
  * mcpgram update | upgrade — self-update to latest @mcpgram/cli.
+ *
+ * Prefer npm global install. Fallbacks:
+ * - Windows: re-run install.ps1 via irm
+ * - Unix: curl install | bash
  */
 
 import { spawn } from "node:child_process";
@@ -22,9 +26,12 @@ async function fetchLatestVersion(): Promise<string | null> {
   }
 }
 
-function spawnAsync(cmd: string, args: string[]): Promise<number> {
+function spawnAsync(cmd: string, args: string[], opts?: { shell?: boolean }): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { stdio: "inherit", shell: process.platform === "win32" });
+    const child = spawn(cmd, args, {
+      stdio: "inherit",
+      shell: opts?.shell ?? process.platform === "win32",
+    });
     child.on("close", (code) => resolve(code ?? 1));
     child.on("error", () => resolve(1));
   });
@@ -58,31 +65,49 @@ export async function updateCmd(opts: { check?: boolean; yes?: boolean } = {}): 
 
   if (opts.check) {
     if (!isJson() && latest && latest !== CLI_VERSION) {
-      console.log(chalk.dim(`Run: mcpgram upgrade`));
+      console.log(chalk.dim(`Run: mcpgram update`));
       process.exitCode = 2;
     }
     return;
   }
 
-  if (!isJson()) info("Updating MCPGRAM CLI…");
+  if (!isJson()) info("Updating MCPGRAM CLI via npm…");
 
   const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmCode = await spawnAsync(npmCmd, ["install", "-g", "@mcpgram/cli@latest"]);
   if (npmCode === 0) {
-    const after = (await fetchLatestVersion()) ?? "latest";
-    success(`Updated to @mcpgram/cli@${after}`);
-    if (!isJson()) console.log(chalk.dim("Restart open agent terminals to pick up the new binary."));
+    const target = latest ?? "latest";
+    success(`Updated to @mcpgram/cli@${target}`);
+    if (!isJson()) {
+      console.log(chalk.dim("Verify: mcpgram --version"));
+      console.log(chalk.dim("Restart open agent terminals to pick up the new binary."));
+    }
     return;
   }
 
-  if (!isJson()) console.log(chalk.dim("npm update failed; trying install script…"));
   const base = process.env.MCPGRAM_INSTALL_BASE || "https://mcpgram.vercel.app";
-  const scriptCode = await spawnAsync("bash", ["-c", `curl -fsSL ${base}/install | bash`]);
-  if (scriptCode === 0) {
-    success("Updated via install script");
-    return;
+
+  if (process.platform === "win32") {
+    if (!isJson()) console.log(chalk.dim("npm update failed; trying install.ps1…"));
+    // PowerShell one-liner reinstall
+    const psCode = await spawnAsync(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `irm ${base}/install.ps1 | iex`],
+      { shell: false }
+    );
+    if (psCode === 0) {
+      success("Updated via install.ps1");
+      return;
+    }
+  } else {
+    if (!isJson()) console.log(chalk.dim("npm update failed; trying install script…"));
+    const scriptCode = await spawnAsync("bash", ["-c", `curl -fsSL ${base}/install | bash`]);
+    if (scriptCode === 0) {
+      success("Updated via install script");
+      return;
+    }
   }
 
-  fail("Update failed. Try: npm install -g @mcpgram/cli@latest");
+  fail("Update failed. Try manually:\n  npm install -g @mcpgram/cli@latest");
   process.exitCode = 1;
 }
