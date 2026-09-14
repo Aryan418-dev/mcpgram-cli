@@ -166,8 +166,6 @@ export async function whoamiCmd(): Promise<void> {
   console.log(`  Type:       ${cfg.apiKey ? "API key" : "OAuth token (PKCE)"}`);
   console.log(`  MCP URL:    ${getMcpUrl()}`);
   if (!v.ok) {
-    warn(
-      `Dashboard API check: ${v.error} (OAuth is for MCP; use an API key for /api/v1)`
-    );
+    warn(`API check: ${v.error}`);
   }
 }
