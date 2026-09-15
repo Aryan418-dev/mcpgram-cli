@@ -5,6 +5,7 @@ import { APP_URL } from "../lib/constants.js";
 import { loadConfig, saveConfig, getMcpUrl } from "../lib/config.js";
 import { McpgramClient } from "../api/client.js";
 import { browserPkceLogin } from "../auth/browser.js";
+import { sessionLogin } from "../auth/session-login.js";
 import {
   clearCredentials,
   getBearerToken,
