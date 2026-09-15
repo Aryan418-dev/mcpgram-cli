@@ -1,8 +1,13 @@
 /**
  * Browser Authorization Code + PKCE for MCPGRAM CLI (default login).
+ *
+ * Works on local machines (loopback callback) AND remote/container terminals
+ * (paste the redirect URL from the browser address bar when 127.0.0.1 is not
+ * reachable from the browser host).
  */
 
 import http from "node:http";
+import readline from "node:readline";
 import { URL } from "node:url";
 import open from "open";
 import chalk from "chalk";
@@ -24,6 +29,22 @@ type AsMetadata = {
   registration_endpoint?: string;
   code_challenge_methods_supported?: string[];
 };
+
+function isRemoteTerminal(): boolean {
+  return Boolean(
+    process.env.SSH_CONNECTION ||
+      process.env.SSH_CLIENT ||
+      process.env.SSH_TTY ||
+      process.env.CODESPACES ||
+      process.env.REMOTE_CONTAINERS ||
+      process.env.VSCODE_REMOTE ||
+      process.env.CURSOR_AGENT ||
+      process.env.DEVCONTAINER ||
+      process.env.GITPOD_WORKSPACE_ID ||
+      process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN ||
+      process.env.KUBERNETES_SERVICE_HOST
+  );
+}
 
 function absUrl(root: string, ep: string): string {
   if (ep.startsWith("http://") || ep.startsWith("https://")) return ep;
@@ -204,6 +225,75 @@ function startLoopbackServer(expectedState: string): Promise<Loopback> {
   });
 }
 
+/** Extract authorization code from a pasted callback URL or bare code. */
+function extractCodeFromPaste(input: string, expectedState: string): string {
+  const trimmed = input.trim().replace(/^['"]|['"]$/g, "");
+  if (!trimmed) throw new Error("Empty paste");
+
+  // Full URL with query
+  if (trimmed.includes("code=") || trimmed.startsWith("http")) {
+    try {
+      const u = new URL(trimmed);
+      const code = u.searchParams.get("code");
+      const state = u.searchParams.get("state");
+      const err = u.searchParams.get("error");
+      if (err) {
+        throw new Error(u.searchParams.get("error_description") || err);
+      }
+      if (!code) throw new Error("No code= in pasted URL");
+      if (state && state !== expectedState) {
+        throw new Error("State mismatch — paste the URL from this login attempt");
+      }
+      return code;
+    } catch (e) {
+      if (e instanceof Error && e.message !== "Invalid URL") throw e;
+      // fall through: maybe query-only string
+      const params = new URLSearchParams(
+        trimmed.includes("?") ? trimmed.split("?").pop()! : trimmed
+      );
+      const code = params.get("code");
+      if (code) return code;
+      throw e instanceof Error ? e : new Error(String(e));
+    }
+  }
+
+  // Bare authorization code (no URL)
+  if (/^[A-Za-z0-9._~\-\/+=]+$/.test(trimmed) && trimmed.length >= 16) {
+    return trimmed;
+  }
+
+  throw new Error("Could not parse code from paste. Paste the full browser URL after login.");
+}
+
+function waitForPaste(expectedState: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      // Non-interactive (agent-driven): still allow stdin line
+    }
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    console.log("");
+    console.log(
+      chalk.bold("  After signing in, if the page fails to load (remote terminal):")
+    );
+    console.log(
+      chalk.dim("  1. Copy the full URL from the browser address bar")
+    );
+    console.log(
+      chalk.dim("     (it looks like http://127.0.0.1:PORT/callback?code=...&state=...)")
+    );
+    console.log(chalk.dim("  2. Paste it here and press Enter"));
+    console.log("");
+    rl.question(chalk.cyan("  Paste redirect URL (or code): "), (answer) => {
+      rl.close();
+      try {
+        resolve(extractCodeFromPaste(answer, expectedState));
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+  });
+}
+
 export async function browserPkceLogin(opts: {
   openBrowser?: boolean;
   timeoutMs?: number;
@@ -219,9 +309,9 @@ export async function browserPkceLogin(opts: {
   const challenge = generateCodeChallenge(verifier);
   const state = generateState();
   const loop = await startLoopbackServer(state);
+  const remote = isRemoteTerminal();
 
   try {
-    // Always register for THIS redirect_uri (ephemeral port). Never reuse old client_id.
     let clientId = process.env.MCPGRAM_CLI_CLIENT_ID?.trim() || "";
     if (!clientId) {
       if (!meta.registration_endpoint) {
@@ -247,12 +337,27 @@ export async function browserPkceLogin(opts: {
 
     console.log("");
     console.log(chalk.bold("  Browser login (PKCE)"));
-    console.log(chalk.dim("  Complete sign-in in your browser. Waiting for callback…"));
+    if (remote) {
+      console.log(
+        chalk.yellow(
+          "  Remote terminal detected — loopback may not receive the callback."
+        )
+      );
+      console.log(
+        chalk.dim(
+          "  Sign in in the browser, then paste the redirect URL below."
+        )
+      );
+    } else {
+      console.log(
+        chalk.dim("  Complete sign-in in your browser. Waiting for callback…")
+      );
+    }
     console.log("");
-    console.log(chalk.dim("  If the browser does not open, visit:"));
+    console.log(chalk.dim("  Open this URL if the browser does not open:"));
     console.log(`  ${chalk.cyan(authUrl.toString())}`);
     console.log("");
-    console.log(chalk.dim(`  Callback: ${loop.redirectUri}`));
+    console.log(chalk.dim(`  Expected callback: ${loop.redirectUri}`));
     console.log("");
 
     if (opts.openBrowser !== false) {
@@ -266,11 +371,22 @@ export async function browserPkceLogin(opts: {
     }
 
     const timeout = opts.timeoutMs ?? 5 * 60 * 1000;
+
+    // Race: loopback hit OR user pastes redirect URL (required for SSH/containers)
     const code = await Promise.race([
-      loop.waitForCode(),
+      loop.waitForCode().then((c) => {
+        console.log(chalk.dim("  Callback received on loopback."));
+        return c;
+      }),
+      waitForPaste(state),
       new Promise<string>((_, rej) =>
         setTimeout(
-          () => rej(new Error("Login timed out after 5 minutes. Run mcpgram login again.")),
+          () =>
+            rej(
+              new Error(
+                "Login timed out after 5 minutes. Run mcpgram login again, then paste the redirect URL if on a remote machine."
+              )
+            ),
           timeout
         )
       ),
