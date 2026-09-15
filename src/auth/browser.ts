@@ -1,9 +1,10 @@
 /**
  * Browser Authorization Code + PKCE for MCPGRAM CLI (default login).
  *
- * Works on local machines (loopback callback) AND remote/container terminals
- * (paste the redirect URL from the browser address bar when 127.0.0.1 is not
- * reachable from the browser host).
+ * Local: loopback http://127.0.0.1:<port>/callback
+ * Remote (SSH/Docker/cloud agent/mobile): hosted
+ *   https://mcpgram-mcp-server.vercel.app/cli/callback + poll
+ * Always also accepts paste of the redirect URL as fallback.
  */
 
 import http from "node:http";
@@ -42,7 +43,8 @@ function isRemoteTerminal(): boolean {
       process.env.DEVCONTAINER ||
       process.env.GITPOD_WORKSPACE_ID ||
       process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN ||
-      process.env.KUBERNETES_SERVICE_HOST
+      process.env.KUBERNETES_SERVICE_HOST ||
+      process.env.MCPGRAM_FORCE_HOSTED_CALLBACK === "1"
   );
 }
 
@@ -225,29 +227,24 @@ function startLoopbackServer(expectedState: string): Promise<Loopback> {
   });
 }
 
-/** Extract authorization code from a pasted callback URL or bare code. */
 function extractCodeFromPaste(input: string, expectedState: string): string {
   const trimmed = input.trim().replace(/^['"]|['"]$/g, "");
   if (!trimmed) throw new Error("Empty paste");
 
-  // Full URL with query
   if (trimmed.includes("code=") || trimmed.startsWith("http")) {
     try {
       const u = new URL(trimmed);
       const code = u.searchParams.get("code");
       const state = u.searchParams.get("state");
       const err = u.searchParams.get("error");
-      if (err) {
-        throw new Error(u.searchParams.get("error_description") || err);
-      }
+      if (err) throw new Error(u.searchParams.get("error_description") || err);
       if (!code) throw new Error("No code= in pasted URL");
       if (state && state !== expectedState) {
         throw new Error("State mismatch — paste the URL from this login attempt");
       }
       return code;
     } catch (e) {
-      if (e instanceof Error && e.message !== "Invalid URL") throw e;
-      // fall through: maybe query-only string
+      if (e instanceof Error && !e.message.includes("Invalid URL")) throw e;
       const params = new URLSearchParams(
         trimmed.includes("?") ? trimmed.split("?").pop()! : trimmed
       );
@@ -257,33 +254,19 @@ function extractCodeFromPaste(input: string, expectedState: string): string {
     }
   }
 
-  // Bare authorization code (no URL)
   if (/^[A-Za-z0-9._~\-\/+=]+$/.test(trimmed) && trimmed.length >= 16) {
     return trimmed;
   }
 
-  throw new Error("Could not parse code from paste. Paste the full browser URL after login.");
+  throw new Error("Could not parse code from paste. Paste the full browser URL or code.");
 }
 
 function waitForPaste(expectedState: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!process.stdin.isTTY) {
-      // Non-interactive (agent-driven): still allow stdin line
-    }
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     console.log("");
-    console.log(
-      chalk.bold("  After signing in, if the page fails to load (remote terminal):")
-    );
-    console.log(
-      chalk.dim("  1. Copy the full URL from the browser address bar")
-    );
-    console.log(
-      chalk.dim("     (it looks like http://127.0.0.1:PORT/callback?code=...&state=...)")
-    );
-    console.log(chalk.dim("  2. Paste it here and press Enter"));
-    console.log("");
-    rl.question(chalk.cyan("  Paste redirect URL (or code): "), (answer) => {
+    console.log(chalk.bold("  Or paste the redirect URL / code here:"));
+    rl.question(chalk.cyan("  Paste: "), (answer) => {
       rl.close();
       try {
         resolve(extractCodeFromPaste(answer, expectedState));
@@ -292,6 +275,29 @@ function waitForPaste(expectedState: string): Promise<string> {
       }
     });
   });
+}
+
+async function pollHostedCode(origin: string, state: string, timeoutMs: number): Promise<string> {
+  const pollUrl = `${origin.replace(/\/$/, "")}/cli/callback/poll?state=${encodeURIComponent(state)}`;
+  const started = Date.now();
+  let delay = 1200;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(pollUrl, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { status?: string; code?: string };
+        if (json.status === "ready" && json.code) return json.code;
+      }
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay + 400, 3000);
+  }
+  throw new Error("Timed out waiting for hosted callback. Paste the code from the browser page.");
 }
 
 export async function browserPkceLogin(opts: {
@@ -308,8 +314,20 @@ export async function browserPkceLogin(opts: {
   const verifier = generateCodeVerifier();
   const challenge = generateCodeChallenge(verifier);
   const state = generateState();
-  const loop = await startLoopbackServer(state);
   const remote = isRemoteTerminal();
+  const origin = MCP_SERVER_ORIGIN.replace(/\/$/, "");
+  const timeout = opts.timeoutMs ?? 5 * 60 * 1000;
+
+  let redirectUri: string;
+  let loop: Loopback | null = null;
+
+  if (remote) {
+    // Hosted HTTPS callback — works when browser cannot reach container localhost
+    redirectUri = `${origin}/cli/callback`;
+  } else {
+    loop = await startLoopbackServer(state);
+    redirectUri = loop.redirectUri;
+  }
 
   try {
     let clientId = process.env.MCPGRAM_CLI_CLIENT_ID?.trim() || "";
@@ -319,45 +337,38 @@ export async function browserPkceLogin(opts: {
           "No registration_endpoint and MCPGRAM_CLI_CLIENT_ID is unset"
         );
       }
-      clientId = await registerClient(meta.registration_endpoint, loop.redirectUri);
+      clientId = await registerClient(meta.registration_endpoint, redirectUri);
     }
 
     const authUrl = new URL(meta.authorization_endpoint);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("client_id", clientId);
-    authUrl.searchParams.set("redirect_uri", loop.redirectUri);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set("code_challenge", challenge);
     authUrl.searchParams.set("code_challenge_method", "S256");
     authUrl.searchParams.set("state", state);
     authUrl.searchParams.set("scope", "mcp offline_access openid profile email");
-    authUrl.searchParams.set(
-      "resource",
-      `${MCP_SERVER_ORIGIN.replace(/\/$/, "")}/mcp`
-    );
+    authUrl.searchParams.set("resource", `${origin}/mcp`);
 
     console.log("");
     console.log(chalk.bold("  Browser login (PKCE)"));
     if (remote) {
       console.log(
         chalk.yellow(
-          "  Remote terminal detected — loopback may not receive the callback."
+          "  Remote terminal — using secure hosted callback (no localhost)."
         )
       );
       console.log(
-        chalk.dim(
-          "  Sign in in the browser, then paste the redirect URL below."
-        )
+        chalk.dim("  After Continue, you should see “Signed in” in the browser.")
       );
     } else {
-      console.log(
-        chalk.dim("  Complete sign-in in your browser. Waiting for callback…")
-      );
+      console.log(chalk.dim("  Complete sign-in in your browser…"));
     }
     console.log("");
-    console.log(chalk.dim("  Open this URL if the browser does not open:"));
+    console.log(chalk.dim("  Open this URL if needed:"));
     console.log(`  ${chalk.cyan(authUrl.toString())}`);
     console.log("");
-    console.log(chalk.dim(`  Expected callback: ${loop.redirectUri}`));
+    console.log(chalk.dim(`  Callback: ${redirectUri}`));
     console.log("");
 
     if (opts.openBrowser !== false) {
@@ -370,32 +381,43 @@ export async function browserPkceLogin(opts: {
       }
     }
 
-    const timeout = opts.timeoutMs ?? 5 * 60 * 1000;
-
-    // Race: loopback hit OR user pastes redirect URL (required for SSH/containers)
-    const code = await Promise.race([
-      loop.waitForCode().then((c) => {
-        console.log(chalk.dim("  Callback received on loopback."));
-        return c;
-      }),
+    const waiters: Promise<string>[] = [
       waitForPaste(state),
       new Promise<string>((_, rej) =>
         setTimeout(
           () =>
             rej(
               new Error(
-                "Login timed out after 5 minutes. Run mcpgram login again, then paste the redirect URL if on a remote machine."
+                "Login timed out after 5 minutes. Run mcpgram login again."
               )
             ),
           timeout
         )
       ),
-    ]);
+    ];
+
+    if (remote) {
+      waiters.unshift(
+        pollHostedCode(origin, state, timeout).then((c) => {
+          console.log(chalk.dim("  Hosted callback received."));
+          return c;
+        })
+      );
+    } else if (loop) {
+      waiters.unshift(
+        loop.waitForCode().then((c) => {
+          console.log(chalk.dim("  Loopback callback received."));
+          return c;
+        })
+      );
+    }
+
+    const code = await Promise.race(waiters);
 
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: loop.redirectUri,
+      redirect_uri: redirectUri,
       client_id: clientId,
       code_verifier: verifier,
     });
@@ -442,6 +464,6 @@ export async function browserPkceLogin(opts: {
       scope: tokenJson.scope,
     };
   } finally {
-    loop.close();
+    loop?.close();
   }
 }
