@@ -4,8 +4,8 @@ import open from "open";
 import { APP_URL } from "../lib/constants.js";
 import { loadConfig, saveConfig, getMcpUrl } from "../lib/config.js";
 import { McpgramClient } from "../api/client.js";
-import { browserPkceLogin } from "../auth/browser.js";
 import { sessionLogin } from "../auth/session-login.js";
+import { browserPkceLogin } from "../auth/browser.js";
 import {
   clearCredentials,
   getBearerToken,
@@ -24,7 +24,10 @@ function prompt(question: string): Promise<string> {
   });
 }
 
-/** mcpgram login — browser PKCE is the default and first option. */
+/**
+ * mcpgram login — Composio-style by default:
+ * hosted browser page + poll → workspace API key → full feature access.
+ */
 export async function loginCmd(opts: {
   key?: string;
   open?: boolean;
@@ -46,59 +49,55 @@ export async function loginCmd(opts: {
     return;
   }
 
-  info("Using browser sign-in (Authorization Code + PKCE)");
-  const spin = spinner("Preparing secure login…");
+  info("Open the link, sign in, authorize a workspace");
+  const spin = spinner("Waiting for browser…");
   try {
-    const tokens = await browserPkceLogin({ openBrowser: opts.open !== false });
+    const session = await sessionLogin({ openBrowser: opts.open !== false });
     spin.stop();
-    const expiresAt = tokens.expiresIn
-      ? new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
-      : undefined;
     storeCredentials({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      tokenType: tokens.tokenType,
-      expiresAt,
-      apiKey: undefined,
+      apiKey: session.apiKey,
+      accessToken: undefined,
+      refreshToken: undefined,
     });
-
-    let workspaceId: string | undefined;
-    try {
-      const client = new McpgramClient(tokens.accessToken);
-      const v = await client.validateKey();
-      if (v.ok && v.workspaceId) {
-        workspaceId = v.workspaceId;
-        saveConfig({ workspaceId, defaultWorkspaceId: workspaceId });
-      }
-    } catch {
-      /* OAuth session still saved for MCP */
+    saveConfig({
+      apiKey: session.apiKey,
+      workspaceId: session.workspaceId,
+      defaultWorkspaceId: session.workspaceId,
+      workspaceName: session.workspaceName,
+      email: session.email,
+    });
+    success("Logged into MCPGRAM");
+    if (session.email) success(`User: ${session.email}`);
+    if (session.workspaceName || session.workspaceId) {
+      success(`Workspace: ${session.workspaceName || session.workspaceId}`);
     }
-
-    success("Logged into MCPGRAM (browser PKCE)");
-    if (workspaceId) success(`Workspace: ${workspaceId}`);
-    else {
-      info(
-        "Session saved for MCP agents. For dashboard API: mcpgram login --key <workspace_key>"
-      );
-    }
-    console.log(chalk.dim("\nNext: mcpgram setup --all   or   mcpgram onboard"));
+    console.log(
+      chalk.dim("\nYou're ready — mcpgram whoami · mcpgram tools · mcpgram setup --all")
+    );
+    return;
   } catch (e) {
     spin.stop();
-    const msg = e instanceof Error ? e.message : String(e);
-    fail(`Browser login failed: ${msg}`);
-    console.log("");
-    warn("Fallbacks:");
-    console.log(chalk.dim("  mcpgram login --key <workspace_api_key>"));
-    console.log(chalk.dim("  mcpgram login --no-browser"));
-    console.log("");
-    if (process.stdin.isTTY) {
-      const useKey = await prompt("Try API key login instead? [y/N] ");
-      if (useKey.toLowerCase() === "y" || useKey.toLowerCase() === "yes") {
-        await promptApiKeyFlow(opts.open !== false);
-        return;
-      }
+    warn(`Hosted login failed: ${e instanceof Error ? e.message : e}`);
+    info("Falling back to PKCE…");
+    try {
+      const tokens = await browserPkceLogin({ openBrowser: opts.open !== false });
+      const expiresAt = tokens.expiresIn
+        ? new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
+        : undefined;
+      storeCredentials({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        tokenType: tokens.tokenType,
+        expiresAt,
+        apiKey: undefined,
+      });
+      success("Logged into MCPGRAM (PKCE)");
+      return;
+    } catch (e2) {
+      fail(`Login failed: ${e2 instanceof Error ? e2.message : e2}`);
+      console.log(chalk.dim("  mcpgram login --key <workspace_api_key>"));
+      process.exitCode = 1;
     }
-    process.exitCode = 1;
   }
 }
 
@@ -110,7 +109,6 @@ async function promptApiKeyFlow(openBrowser: boolean): Promise<void> {
   if (openBrowser) {
     try {
       await open(keysUrl);
-      console.log(chalk.dim("Opened browser.\n"));
     } catch {
       /* ignore */
     }
@@ -139,7 +137,7 @@ async function loginWithApiKey(apiKey: string): Promise<void> {
     workspaceId: v.workspaceId,
     defaultWorkspaceId: v.workspaceId,
   });
-  success("Logged into MCPGRAM (API key)");
+  success("Logged into MCPGRAM");
   if (v.workspaceId) success(`Workspace: ${v.workspaceId}`);
   console.log(chalk.dim("\nNext: mcpgram setup --all"));
 }
@@ -164,7 +162,7 @@ export async function whoamiCmd(): Promise<void> {
   console.log(`  Workspace: ${v.workspaceId ?? cfg.workspaceId ?? "—"}`);
   if (cfg.workspaceName) console.log(`  Name:      ${cfg.workspaceName}`);
   console.log(`  Credential: ${maskSecret(token)}`);
-  console.log(`  Type:       ${cfg.apiKey ? "API key" : "OAuth token (PKCE)"}`);
+  console.log(`  Type:       ${cfg.apiKey ? "API key" : "OAuth token"}`);
   console.log(`  MCP URL:    ${getMcpUrl()}`);
   if (!v.ok) {
     warn(`API check: ${v.error}`);
