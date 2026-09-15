@@ -1,6 +1,6 @@
 {
   "name": "@mcpgram/cli",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Official MCPGRAM CLI \u2014 login once, configure every AI agent, search/link/execute tools (Composio-style)",
   "type": "module",
   "bin": {
